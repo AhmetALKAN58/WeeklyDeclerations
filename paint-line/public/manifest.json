@@ -1,0 +1,18 @@
+{
+  "name": "Paintline Weekly Report",
+  "short_name": "Paintline",
+  "description": "Weekly paintline order list, daily meetings, and repaint forms",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#efe7d6",
+  "theme_color": "#1b2a4a",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
