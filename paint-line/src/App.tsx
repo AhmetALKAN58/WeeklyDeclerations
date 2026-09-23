@@ -215,6 +215,7 @@ export default function App() {
 
   const blockingSlot = dueRepaint ?? dueMeeting;
   const blockingKind = dueRepaint ? "repaint" : dueMeeting ? "meeting" : null;
+  const popupOpen = Boolean(blockingSlot) && saveState !== "loading";
 
   useEffect(() => {
     if (!blockingSlot || blockingSlot.weekStart === weekStart) {
@@ -235,12 +236,45 @@ export default function App() {
   }, [blockingSlot?.weekStart, weekStart]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle(
-      "meeting-handover-open",
-      Boolean(blockingSlot) && saveState !== "loading",
-    );
-    return () => document.documentElement.classList.remove("meeting-handover-open");
-  }, [blockingSlot, saveState]);
+    if (!popupOpen) return;
+
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const previous = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    document.documentElement.classList.add("meeting-handover-open");
+
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.closest(".meeting-popup")) return;
+      window.setTimeout(() => {
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+      }, 250);
+    };
+    document.addEventListener("focusin", onFocusIn);
+
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.left = previous.left;
+      body.style.right = previous.right;
+      body.style.width = previous.width;
+      document.documentElement.classList.remove("meeting-handover-open");
+      window.scrollTo(0, scrollY);
+    };
+  }, [popupOpen]);
 
   const openForm = useCallback(
     (nextShift: ShiftId, nextScreen: Screen, nextDay: DayId = "monday") => {
