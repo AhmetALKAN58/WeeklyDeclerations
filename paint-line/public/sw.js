@@ -1,4 +1,4 @@
-const CACHE = "paintline-v1";
+const CACHE = "paintline-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

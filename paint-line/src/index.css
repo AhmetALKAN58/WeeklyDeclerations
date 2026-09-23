@@ -34,7 +34,9 @@ textarea {
   font: inherit;
 }
 
-button {
+button,
+input,
+textarea {
   touch-action: manipulation;
 }
 
@@ -724,6 +726,8 @@ button {
   overflow: auto;
   padding: 12px;
   background: rgba(16, 18, 28, 0.78);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .meeting-popup-card {
@@ -794,11 +798,6 @@ button {
   padding: 28px;
   text-align: center;
   border-radius: 0 0 16px 16px;
-}
-
-html.meeting-handover-open,
-html.meeting-handover-open body {
-  overflow: hidden;
 }
 
 .meeting-day {
