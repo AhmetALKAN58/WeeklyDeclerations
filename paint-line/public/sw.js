@@ -1,10 +1,8 @@
-const CACHE = "paintline-v1";
+const CACHE = "paintline-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(["./", "./index.html"])),
-  );
+  event.waitUntil(caches.open(CACHE));
 });
 
 self.addEventListener("activate", (event) => {
@@ -24,17 +22,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const navigate =
+    request.mode === "navigate" ||
+    request.destination === "document" ||
+    request.url.endsWith("/paintline/") ||
+    request.url.endsWith("/paintline/index.html");
+
+  if (navigate) {
+    event.respondWith(
+      fetch(request).catch(() => caches.match("./index.html")),
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached || caches.match("./index.html"));
+      const network = fetch(request).then((response) => {
+        if (response && response.status === 200) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      });
       return cached || network;
     }),
   );

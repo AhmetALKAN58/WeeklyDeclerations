@@ -1,0 +1,12 @@
+# Weekly Declarations — command reference
+# Admin PowerShell. Service: AirvectorForms (:8512) → https://forms.airvector-os.com/paintline/
+#
+# Shop-only access (same as station kiosks). logging_db\.env:
+#   STATION_ALLOW_IPS=216.113.104.26
+# Forms reads that file on startup. After changing it:
+# curl.exe http://127.0.0.1:8512/api/health  →  "ip_locked": true
+
+Restart-Service AirvectorForms
+
+# After deploy: on a phone that still opens the form on cellular, clear site data
+# for forms.airvector-os.com (old service worker cached the app offline-first).

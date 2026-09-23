@@ -35,9 +35,11 @@ bilingual (French / English) exactly as on the paper forms.
 
 ## Where the data lives
 
-Everything is stored in the browser's IndexedDB on the tablet itself. No
-server, no account, nothing leaves the device. Clearing the browser's site data
-deletes the reports, so export a week when you want a permanent copy.
+Each week is one row in the Supabase table `paint_line_weeks` (`week_start`
+plus the full report as JSON). The tablet also keeps a copy in IndexedDB so a
+dropped connection does not lose the form in progress. Set
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`
+before `npm run dev`.
 
 ## Running it
 
@@ -63,6 +65,11 @@ npm run preview
 Both `dev` and `preview` listen on all network interfaces, so the tablet can
 open the URL shown as **Network** (for example `http://10.0.1.148:5173/`) while
 on the same Wi-Fi.
+
+Production is served on this PC at port 8512 and published through the
+Cloudflare tunnel:
+
+https://forms.airvector-os.com/paintline/
 
 To use it as an app on the tablet: open that URL in Chrome, then
 **⋮ → Add to Home screen**. The production build registers a service worker, so

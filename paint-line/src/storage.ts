@@ -1,4 +1,20 @@
+import { createClient } from "@supabase/supabase-js";
 import { emptyReport, normalizeReport, type WeeklyReport } from "./model";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+const supabase =
+  supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+const TABLE = "paint_line_weeks";
+
+export class RemoteSaveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RemoteSaveError";
+  }
+}
 
 const DB_NAME = "paintline-weekly";
 const STORE = "reports";
@@ -15,29 +31,41 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function loadReport(weekStart: string): Promise<WeeklyReport> {
+type LocalCopy = { report: WeeklyReport; savedAt: string };
+
+function asLocalCopy(value: unknown, weekStart: string): LocalCopy | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<LocalCopy> & Partial<WeeklyReport>;
+  const report = row.report?.weekStart ? row.report : (row as WeeklyReport);
+  if (!report?.weekStart || report.weekStart !== weekStart) return null;
+  return {
+    report: normalizeReport(report, weekStart),
+    savedAt: row.savedAt || "",
+  };
+}
+
+async function readLocal(weekStart: string): Promise<LocalCopy | null> {
   try {
     const db = await openDb();
-    const report = await new Promise<WeeklyReport | undefined>((resolve, reject) => {
+    const value = await new Promise<unknown>((resolve, reject) => {
       const tx = db.transaction(STORE, "readonly");
       const req = tx.objectStore(STORE).get(weekStart);
-      req.onsuccess = () => resolve(req.result as WeeklyReport | undefined);
+      req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     db.close();
-    return report && report.weekStart === weekStart
-      ? normalizeReport(report, weekStart)
-      : emptyReport(weekStart);
+    return asLocalCopy(value, weekStart);
   } catch {
-    return emptyReport(weekStart);
+    return null;
   }
 }
 
-export async function saveReport(report: WeeklyReport): Promise<void> {
+async function writeLocal(report: WeeklyReport, savedAt: string): Promise<void> {
   const db = await openDb();
+  const copy: LocalCopy = { report, savedAt };
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(report, report.weekStart);
+    tx.objectStore(STORE).put(copy, report.weekStart);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -45,24 +73,61 @@ export async function saveReport(report: WeeklyReport): Promise<void> {
   localStorage.setItem(LAST_WEEK_KEY, report.weekStart);
 }
 
+async function readRemote(
+  weekStart: string,
+): Promise<{ report: WeeklyReport; updatedAt: string } | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("report, updated_at")
+    .eq("week_start", weekStart)
+    .maybeSingle();
+  if (error) throw new RemoteSaveError(error.message);
+  if (!data?.report) return null;
+  return {
+    report: normalizeReport(data.report as WeeklyReport, weekStart),
+    updatedAt: String(data.updated_at ?? ""),
+  };
+}
+
+export async function loadReport(weekStart: string): Promise<WeeklyReport> {
+  const local = await readLocal(weekStart);
+  try {
+    const remote = await readRemote(weekStart);
+    if (!remote) return local?.report ?? emptyReport(weekStart);
+    if (local && local.savedAt > remote.updatedAt) return local.report;
+    await writeLocal(remote.report, remote.updatedAt);
+    return remote.report;
+  } catch {
+    return local?.report ?? emptyReport(weekStart);
+  }
+}
+
+export async function saveReport(report: WeeklyReport): Promise<void> {
+  const savedAt = new Date().toISOString();
+  await writeLocal(report, savedAt);
+  if (!supabase) {
+    throw new RemoteSaveError("Supabase is not configured");
+  }
+  const { error } = await supabase.from(TABLE).upsert(
+    { week_start: report.weekStart, report },
+    { onConflict: "week_start" },
+  );
+  if (error) throw new RemoteSaveError(error.message);
+}
+
 export function getLastWeek(): string | null {
   return localStorage.getItem(LAST_WEEK_KEY);
 }
 
 export async function listWeeks(): Promise<string[]> {
-  try {
-    const db = await openDb();
-    const keys = await new Promise<string[]>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).getAllKeys();
-      req.onsuccess = () => resolve(req.result.map(String));
-      req.onerror = () => reject(req.error);
-    });
-    db.close();
-    return keys.sort();
-  } catch {
-    return [];
-  }
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("week_start")
+    .order("week_start");
+  if (error || !data) return [];
+  return data.map((row) => String(row.week_start));
 }
 
 export function downloadJson(report: WeeklyReport): void {

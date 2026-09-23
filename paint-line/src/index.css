@@ -181,7 +181,8 @@ button {
   opacity: 0.9;
 }
 
-.save-pill.saving {
+.save-pill.saving,
+.save-pill.local {
   color: #e8c56b;
 }
 

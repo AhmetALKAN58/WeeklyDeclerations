@@ -87,9 +87,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("overview");
   const [shift, setShift] = useState<ShiftId>("morning");
   const [day, setDay] = useState<DayId>("monday");
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "loading">(
-    "loading",
-  );
+  const [saveState, setSaveState] = useState<
+    "saved" | "saving" | "loading" | "local"
+  >("loading");
   const skipSave = useRef(true);
   const [pendingSubmit, setPendingSubmit] = useState<PendingSubmit | null>(
     null,
@@ -120,7 +120,7 @@ export default function App() {
     const timer = window.setTimeout(() => {
       saveReport(report)
         .then(() => setSaveState("saved"))
-        .catch(() => setSaveState("saved"));
+        .catch(() => setSaveState("local"));
     }, 250);
     return () => window.clearTimeout(timer);
   }, [report]);
@@ -128,7 +128,9 @@ export default function App() {
   useEffect(() => {
     if (!handoverReport || handoverReport.weekStart === weekStart) return;
     const timer = window.setTimeout(() => {
-      void saveReport(handoverReport);
+      saveReport(handoverReport)
+        .then(() => setSaveState("saved"))
+        .catch(() => setSaveState("local"));
     }, 250);
     return () => window.clearTimeout(timer);
   }, [handoverReport, weekStart]);
@@ -427,7 +429,9 @@ export default function App() {
               ? "Chargement / Loading"
               : saveState === "saving"
                 ? "Enregistrement… / Saving"
-                : "Enregistré sur la tablette / Saved on tablet"}
+                : saveState === "local"
+                ? "Tablette seulement / Saved on tablet"
+                : "Enregistré / Saved"}
           </span>
         </div>
       </header>
