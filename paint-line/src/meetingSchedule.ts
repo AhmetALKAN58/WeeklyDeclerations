@@ -137,7 +137,9 @@ function allTriggeredForWeek(
 /**
  * Forms that should block the tablet now:
  * - today's morning and evening, once their trigger time has passed
- * - yesterday's night (morning of the next calendar day)
+ * - yesterday's morning and evening if still open (evening ends at 23:00, so
+ *   after midnight those slots would otherwise vanish)
+ * - yesterday's night (triggers at 07:00 the following calendar morning)
  * - every leftover form if the tablet is still holding an ended week
  */
 function dueCandidates(
@@ -166,7 +168,12 @@ function dueCandidates(
   addDue(out, today, "evening", week, now, at);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  addDue(out, yesterday, "night", getMonday(yesterday), now, at);
+  const yesterdayWeek = getMonday(yesterday);
+  // Evening (and morning) stay due after midnight until submitted — same idea
+  // as night, which already used the previous calendar day.
+  addDue(out, yesterday, "morning", yesterdayWeek, now, at);
+  addDue(out, yesterday, "evening", yesterdayWeek, now, at);
+  addDue(out, yesterday, "night", yesterdayWeek, now, at);
 
   return uniqueDueSlots(out);
 }
