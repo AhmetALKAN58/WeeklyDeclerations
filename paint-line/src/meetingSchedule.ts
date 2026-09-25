@@ -135,12 +135,15 @@ function allTriggeredForWeek(
 }
 
 /**
- * Forms that should block the tablet now:
- * - today's morning and evening, once their trigger time has passed
- * - yesterday's morning and evening if still open (evening ends at 23:00, so
- *   after midnight those slots would otherwise vanish)
- * - yesterday's night (triggers at 07:00 the following calendar morning)
- * - every leftover form if the tablet is still holding an ended week
+ * Forms that should block the tablet now (oldest trigger first):
+ * - every shift in the active week whose trigger has passed (day 14:30/15:00,
+ *   evening 22:30/23:00, night 06:30/07:00 next calendar morning)
+ * - when holding an ended week, also queue the new calendar week's due forms
+ *   so today's triggers still fire and sit behind leftover handovers
+ * - on Monday, Sunday evening/night from the previous week (week rollover)
+ *
+ * Overdue slots stay until submitted — we never drop forms older than
+ * "yesterday", which previously made mid-week popups vanish.
  */
 function dueCandidates(
   now: Date,
@@ -149,31 +152,33 @@ function dueCandidates(
 ): DueSlot[] {
   const calendarWeek = getMonday(now);
   const week = heldWeekStart ?? calendarWeek;
+  const out: DueSlot[] = [];
 
   if (week < calendarWeek) {
-    return uniqueDueSlots(allTriggeredForWeek(week, now, at));
+    out.push(...allTriggeredForWeek(week, now, at));
+    // Do not starve the new week while operators clear last week's queue.
+    out.push(...allTriggeredForWeek(calendarWeek, now, at));
+    return uniqueDueSlots(out);
   }
 
-  const out: DueSlot[] = [];
-  const today = new Date(
+  out.push(...allTriggeredForWeek(week, now, at));
+
+  // Sunday evening / night remain due on Monday after the calendar week rolls.
+  const yesterday = new Date(
     now.getFullYear(),
     now.getMonth(),
-    now.getDate(),
+    now.getDate() - 1,
     12,
     0,
     0,
     0,
   );
-  addDue(out, today, "morning", week, now, at);
-  addDue(out, today, "evening", week, now, at);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayWeek = getMonday(yesterday);
-  // Evening (and morning) stay due after midnight until submitted — same idea
-  // as night, which already used the previous calendar day.
-  addDue(out, yesterday, "morning", yesterdayWeek, now, at);
-  addDue(out, yesterday, "evening", yesterdayWeek, now, at);
-  addDue(out, yesterday, "night", yesterdayWeek, now, at);
+  if (yesterdayWeek < week) {
+    for (const shift of SHIFTS) {
+      addDue(out, yesterday, shift, yesterdayWeek, now, at);
+    }
+  }
 
   return uniqueDueSlots(out);
 }
