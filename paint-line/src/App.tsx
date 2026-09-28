@@ -11,6 +11,7 @@ import {
   dueRepaintCandidates,
   previousWeekStart,
   weekHasPendingSubmissions,
+  weekWasStarted,
   type DueSlot,
 } from "./meetingSchedule";
 import {
@@ -155,13 +156,23 @@ export default function App() {
   );
   const calendarWeek = useMemo(() => getMonday(clockNow()), [nowTick]);
   const holdingLastWeek = weekStart < calendarWeek;
+  const startedWeek = useMemo(() => weekWasStarted(report), [report]);
+  const canGoToNextWeek =
+    holdingLastWeek &&
+    report.weekStart === weekStart &&
+    startedWeek &&
+    !pendingHold &&
+    saveState !== "loading";
 
   useEffect(() => {
     if (saveState === "loading") return;
     const previous = previousWeekStart(calendarWeek);
 
     if (weekStart === previous) {
-      if (report.weekStart === previous && !pendingHold) {
+      // Only auto-leave an empty/unstarted prior week. A started week that is
+      // fully submitted waits for an explicit "Go to next week" tap so the
+      // last save is not cancelled by a weekStart reload race.
+      if (report.weekStart === previous && !pendingHold && !startedWeek) {
         setWeekStart(calendarWeek);
         setScreen("overview");
       }
@@ -172,7 +183,14 @@ export default function App() {
       setWeekStart(previous);
       setScreen("overview");
     }
-  }, [weekStart, saveState, pendingHold, calendarWeek, report.weekStart]);
+  }, [
+    weekStart,
+    saveState,
+    pendingHold,
+    calendarWeek,
+    report.weekStart,
+    startedWeek,
+  ]);
 
   useEffect(() => {
     if (saveState === "loading") return;
@@ -293,6 +311,21 @@ export default function App() {
     const endFr = formatShort(sundayOf(weekStart), "fr-CA");
     return `${startFr} – ${endFr}  ·  ${start} – ${end}`;
   }, [weekStart]);
+
+  async function goToNextWeek() {
+    if (!canGoToNextWeek) return;
+    // Flush the held week's last submission before swapping weekStart so the
+    // load effect cannot cancel the debounced save and reload stale data.
+    setSaveState("saving");
+    try {
+      await saveReport(report);
+      setSaveState("saved");
+    } catch {
+      setSaveState("local");
+    }
+    setWeekStart(calendarWeek);
+    setScreen("overview");
+  }
 
   function confirmSubmit() {
     if (!pendingSubmit) return;
@@ -448,10 +481,16 @@ export default function App() {
                 : "Semaine en cours / Current week"}
             </span>
             <strong>{weekLabel}</strong>
-            {holdingLastWeek ? (
+            {holdingLastWeek && !canGoToNextWeek ? (
               <em className="week-hold">
                 Envoyez les formulaires restants pour ouvrir la nouvelle
                 semaine. / Submit remaining forms to open the new week.
+              </em>
+            ) : null}
+            {canGoToNextWeek ? (
+              <em className="week-hold week-hold-ready">
+                Semaine complète — passez à la suivante. / Week complete —
+                go to the next week.
               </em>
             ) : null}
           </div>
@@ -467,13 +506,31 @@ export default function App() {
                 ? "Tablette seulement / Saved on tablet"
                 : "Enregistré / Saved"}
           </span>
+          {canGoToNextWeek ? (
+            <button
+              type="button"
+              className="primary-btn next-week-btn"
+              onClick={() => {
+                void goToNextWeek();
+              }}
+            >
+              Aller à la semaine suivante / Go to next week
+            </button>
+          ) : null}
         </div>
       </header>
 
       </div>
 
       {screen === "overview" ? (
-        <Overview report={report} onOpen={openForm} />
+        <Overview
+          report={report}
+          canGoToNextWeek={canGoToNextWeek}
+          onGoToNextWeek={() => {
+            void goToNextWeek();
+          }}
+          onOpen={openForm}
+        />
       ) : (
         <>
           <main className={`form-stage shift-${shift}`}>
@@ -623,9 +680,13 @@ export default function App() {
 
 function Overview({
   report,
+  canGoToNextWeek,
+  onGoToNextWeek,
   onOpen,
 }: {
   report: WeeklyReport;
+  canGoToNextWeek: boolean;
+  onGoToNextWeek: () => void;
   onOpen: (shift: ShiftId, screen: Screen, day?: DayId) => void;
 }) {
   return (
@@ -637,6 +698,21 @@ function Overview({
         Each shift has 7 daily order lists (Monday–Sunday), 1 daily meeting page
         and a daily repaint &amp; bad material form.
       </p>
+      {canGoToNextWeek ? (
+        <div className="next-week-banner">
+          <p>
+            Tous les formulaires de la semaine sont envoyés. /
+            All forms for this week are submitted.
+          </p>
+          <button
+            type="button"
+            className="primary-btn next-week-btn"
+            onClick={onGoToNextWeek}
+          >
+            Aller à la semaine suivante / Go to next week
+          </button>
+        </div>
+      ) : null}
       <div className="shift-columns">
         {SHIFTS.map((id) => {
           const data = report.shifts[id];
