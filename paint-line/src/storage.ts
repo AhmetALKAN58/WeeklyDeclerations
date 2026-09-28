@@ -73,6 +73,27 @@ async function writeLocal(report: WeeklyReport, savedAt: string): Promise<void> 
   localStorage.setItem(LAST_WEEK_KEY, report.weekStart);
 }
 
+const REMOTE_LOAD_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function readRemote(
   weekStart: string,
 ): Promise<{ report: WeeklyReport; updatedAt: string } | null> {
@@ -93,7 +114,13 @@ async function readRemote(
 export async function loadReport(weekStart: string): Promise<WeeklyReport> {
   const local = await readLocal(weekStart);
   try {
-    const remote = await readRemote(weekStart);
+    // Without a timeout, a hung Supabase/fetch leaves App saveState at
+    // "loading" forever ("Chargement / Loading" in the chrome pill).
+    const remote = await withTimeout(
+      readRemote(weekStart),
+      REMOTE_LOAD_TIMEOUT_MS,
+      "Supabase loadReport",
+    );
     if (!remote) return local?.report ?? emptyReport(weekStart);
     if (local && local.savedAt > remote.updatedAt) return local.report;
     await writeLocal(remote.report, remote.updatedAt);
