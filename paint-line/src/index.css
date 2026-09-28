@@ -134,6 +134,40 @@ textarea {
   color: #f0c14b;
 }
 
+.week-hold-ready {
+  color: #9fdfb0;
+}
+
+.next-week-btn {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.next-week-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 12px 14px;
+  padding: 14px 16px;
+  background: #e8f5ec;
+  border: 1px solid #9fbfa8;
+  color: #1e3d28;
+}
+
+.next-week-banner p {
+  margin: 0;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.next-week-banner .next-week-btn {
+  background: #2f6b3a;
+  color: #fff;
+}
+
 .chrome-actions {
   margin-top: 6px;
   justify-content: flex-end;
