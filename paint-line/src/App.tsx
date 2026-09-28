@@ -244,7 +244,11 @@ export default function App() {
   const popupOpen = Boolean(blockingSlot) && saveState !== "loading";
 
   useEffect(() => {
-    if (!blockingSlot || blockingSlot.weekStart === weekStart) {
+    // Absence of a popup is not a reason to drop the handover week. Doing so
+    // cancelled the debounced save and made the last form — Sunday night,
+    // whose trigger falls on Monday — load again as if it was never sent.
+    if (!blockingSlot) return;
+    if (blockingSlot.weekStart === weekStart) {
       setHandoverReport((prev) => (prev ? null : prev));
       return;
     }
@@ -371,16 +375,14 @@ export default function App() {
             submittedAt,
           ),
         );
-      } else {
-        setHandoverReport((prev) =>
-          prev
-            ? withMeetingDaySubmitted(
-                prev,
-                target.shift,
-                target.day,
-                submittedAt,
-              )
-            : prev,
+      } else if (handoverReport?.weekStart === target.weekStart) {
+        setHandoverReport(
+          withMeetingDaySubmitted(
+            handoverReport,
+            target.shift,
+            target.day,
+            submittedAt,
+          ),
         );
       }
     } else if (pendingSubmit.kind === "repaint-day") {
@@ -402,11 +404,14 @@ export default function App() {
         setReport((prev) =>
           withRepaintDaySubmitted(prev, target.shift, target.day, submittedAt),
         );
-      } else {
-        setHandoverReport((prev) =>
-          prev
-            ? withRepaintDaySubmitted(prev, target.shift, target.day, submittedAt)
-            : prev,
+      } else if (handoverReport?.weekStart === target.weekStart) {
+        setHandoverReport(
+          withRepaintDaySubmitted(
+            handoverReport,
+            target.shift,
+            target.day,
+            submittedAt,
+          ),
         );
       }
     }
