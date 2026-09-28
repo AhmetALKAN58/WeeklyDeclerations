@@ -28,6 +28,7 @@ import {
   meetingSubmittedCount,
   orderCanSubmit,
   orderHasContent,
+  mergeKeepSubmitted,
   orderIsLocked,
   parseIso,
   repaintDayCanSubmit,
@@ -51,23 +52,30 @@ type PendingSubmit =
   | { kind: "repaint-day"; shift: ShiftId; day: DayId; weekStart: string }
   | { kind: "meeting-day"; shift: ShiftId; day: DayId; weekStart: string };
 
+type SlotChoice = DueSlot & { pendingLoad?: boolean };
+
 function firstOpenSlot(
   candidates: DueSlot[],
   weekStart: string,
   report: WeeklyReport,
   handover: WeeklyReport | null,
+  blockedWeeks: readonly string[],
   isSubmitted: (source: WeeklyReport, slot: DueSlot) => boolean,
-): DueSlot | null {
+): SlotChoice | null {
   for (const candidate of candidates) {
     if (candidate.weekStart === weekStart) {
       if (!isSubmitted(report, candidate)) return candidate;
       continue;
     }
+    if (blockedWeeks.includes(candidate.weekStart)) continue;
     if (handover?.weekStart === candidate.weekStart) {
       if (!isSubmitted(handover, candidate)) return candidate;
       continue;
     }
-    return candidate;
+    // The other week is not loaded yet. Ask for a load, but do not open a
+    // form we have not read — that is what flashed "Loading…" and then
+    // reopened a form that was already sent.
+    return { ...candidate, pendingLoad: true };
   }
   return null;
 }
@@ -98,28 +106,56 @@ export default function App() {
   const [handoverReport, setHandoverReport] = useState<WeeklyReport | null>(
     null,
   );
+  const [blockedWeeks, setBlockedWeeks] = useState<string[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [nowTick, setNowTick] = useState(() => clockNow().getTime());
+  const reportRef = useRef(report);
+  reportRef.current = report;
+  const handoverRef = useRef(handoverReport);
+  handoverRef.current = handoverReport;
+  // Equal tokens mean the handover on screen was loaded, not edited, so it
+  // must not be saved back over a submit.
+  const handoverLoadToken = useRef(0);
+  const appliedLoadToken = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     skipSave.current = true;
     setSaveState("loading");
+    setLoadFailed(false);
+    const giveUp = window.setTimeout(() => {
+      if (cancelled) return;
+      // Stop the pill on "Chargement / Loading". Do not save the empty
+      // placeholder — that would wipe the week on the server.
+      setLoadFailed(true);
+      setSaveState((state) => (state === "loading" ? "local" : state));
+    }, 15_000);
     loadReport(weekStart)
       .then((loaded) => {
         if (cancelled) return;
-        setReport(loaded);
+        const current = reportRef.current;
+        const merged = mergeKeepSubmitted(
+          loaded,
+          current.weekStart === loaded.weekStart ? current : null,
+          weekStart,
+        );
+        reportRef.current = merged;
+        setReport(merged);
+        setLoadFailed(false);
         setSaveState("saved");
         skipSave.current = false;
       })
       .catch(() => {
-        // loadReport normally swallows errors; keep the UI usable if it ever rejects.
         if (cancelled) return;
-        setReport(emptyReport(weekStart));
+        setLoadFailed(true);
         setSaveState("local");
-        skipSave.current = false;
+      })
+      .finally(() => {
+        window.clearTimeout(giveUp);
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(giveUp);
     };
   }, [weekStart]);
 
@@ -136,6 +172,7 @@ export default function App() {
 
   useEffect(() => {
     if (!handoverReport || handoverReport.weekStart === weekStart) return;
+    if (appliedLoadToken.current === handoverLoadToken.current) return;
     const timer = window.setTimeout(() => {
       saveReport(handoverReport)
         .then(() => setSaveState("saved"))
@@ -224,9 +261,10 @@ export default function App() {
       weekStart,
       report,
       handoverReport,
+      blockedWeeks,
       (source, slot) => source.shifts[slot.shift].repaint[slot.day].submitted,
     );
-  }, [nowTick, report, handoverReport, weekStart]);
+  }, [nowTick, report, handoverReport, weekStart, blockedWeeks]);
 
   const dueMeeting = useMemo(() => {
     void nowTick;
@@ -235,13 +273,26 @@ export default function App() {
       weekStart,
       report,
       handoverReport,
+      blockedWeeks,
       (source, slot) => source.shifts[slot.shift].meeting[slot.day].submitted,
     );
-  }, [nowTick, report, handoverReport, weekStart]);
+  }, [nowTick, report, handoverReport, weekStart, blockedWeeks]);
 
+  const dueRepaintOpen =
+    dueRepaint && !dueRepaint.pendingLoad ? dueRepaint : null;
+  // Do not open the meeting while an earlier repaint form is still being read.
+  const dueMeetingOpen =
+    dueRepaint?.pendingLoad || !dueMeeting || dueMeeting.pendingLoad
+      ? null
+      : dueMeeting;
   const blockingSlot = dueRepaint ?? dueMeeting;
-  const blockingKind = dueRepaint ? "repaint" : dueMeeting ? "meeting" : null;
-  const popupOpen = Boolean(blockingSlot) && saveState !== "loading";
+  const blockingKind = dueRepaintOpen
+    ? "repaint"
+    : dueMeetingOpen
+      ? "meeting"
+      : null;
+  const popupOpen =
+    Boolean(blockingKind) && saveState !== "loading" && !loadFailed;
 
   useEffect(() => {
     // The week on screen is saved as `report`. Drop a handover only when it is
@@ -256,15 +307,41 @@ export default function App() {
       return;
     }
     const targetWeek = blockingSlot.weekStart;
+    if (handoverRef.current?.weekStart === targetWeek) return;
     let cancelled = false;
-    loadReport(targetWeek).then((loaded) => {
+    const token = ++handoverLoadToken.current;
+    const giveUp = window.setTimeout(() => {
       if (cancelled) return;
-      setHandoverReport((prev) =>
-        prev && prev.weekStart === loaded.weekStart ? prev : loaded,
+      if (handoverRef.current?.weekStart === targetWeek) return;
+      setBlockedWeeks((prev) =>
+        prev.includes(targetWeek) ? prev : [...prev, targetWeek],
       );
-    });
+    }, 15_000);
+    loadReport(targetWeek)
+      .then((loaded) => {
+        if (cancelled) return;
+        window.clearTimeout(giveUp);
+        const current = handoverRef.current;
+        const merged = mergeKeepSubmitted(
+          current?.weekStart === loaded.weekStart ? current : loaded,
+          current?.weekStart === loaded.weekStart ? loaded : current,
+          targetWeek,
+        );
+        appliedLoadToken.current = token;
+        handoverRef.current = merged;
+        setHandoverReport(merged);
+        setBlockedWeeks((prev) => prev.filter((week) => week !== targetWeek));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        window.clearTimeout(giveUp);
+        setBlockedWeeks((prev) =>
+          prev.includes(targetWeek) ? prev : [...prev, targetWeek],
+        );
+      });
     return () => {
       cancelled = true;
+      window.clearTimeout(giveUp);
     };
   }, [blockingSlot?.weekStart, weekStart]);
 
@@ -333,7 +410,7 @@ export default function App() {
     // load effect cannot cancel the debounced save and reload stale data.
     setSaveState("saving");
     try {
-      await saveReport(report);
+      await saveReport(reportRef.current);
       setSaveState("saved");
     } catch {
       setSaveState("local");
@@ -342,81 +419,88 @@ export default function App() {
     setScreen("overview");
   }
 
+  function commitReport(next: WeeklyReport) {
+    reportRef.current = next;
+    setReport(next);
+    void saveReport(next);
+  }
+
+  function commitHandover(next: WeeklyReport) {
+    appliedLoadToken.current = -1;
+    handoverRef.current = next;
+    setHandoverReport(next);
+    void saveReport(next);
+  }
+
   function confirmSubmit() {
     if (!pendingSubmit) return;
     const submittedAt = new Date().toISOString();
-    if (pendingSubmit.kind === "orders") {
-      if (!orderCanSubmit(report.shifts[shift].orders[day])) {
+    const pending = pendingSubmit;
+    if (pending.kind === "orders") {
+      const current = reportRef.current;
+      if (!orderCanSubmit(current.shifts[shift].orders[day])) {
         setPendingSubmit(null);
         return;
       }
-      setReport((prev) => ({
-        ...prev,
+      commitReport({
+        ...current,
         shifts: {
-          ...prev.shifts,
+          ...current.shifts,
           [shift]: {
-            ...prev.shifts[shift],
+            ...current.shifts[shift],
             orders: {
-              ...prev.shifts[shift].orders,
+              ...current.shifts[shift].orders,
               [day]: {
-                ...prev.shifts[shift].orders[day],
+                ...current.shifts[shift].orders[day],
                 submitted: true,
                 submittedAt,
               },
             },
           },
         },
-      }));
-    } else if (pendingSubmit.kind === "meeting-day") {
-      const target = pendingSubmit;
-      if (target.weekStart === weekStart) {
-        setReport((prev) =>
+      });
+    } else if (pending.kind === "meeting-day") {
+      if (pending.weekStart === weekStart) {
+        commitReport(
           withMeetingDaySubmitted(
-            prev,
-            target.shift,
-            target.day,
+            reportRef.current,
+            pending.shift,
+            pending.day,
             submittedAt,
           ),
         );
-      } else if (handoverReport?.weekStart === target.weekStart) {
-        setHandoverReport(
+      } else if (handoverRef.current?.weekStart === pending.weekStart) {
+        commitHandover(
           withMeetingDaySubmitted(
-            handoverReport,
-            target.shift,
-            target.day,
+            handoverRef.current,
+            pending.shift,
+            pending.day,
             submittedAt,
           ),
         );
       }
-    } else if (pendingSubmit.kind === "repaint-day") {
-      const target = pendingSubmit;
+    } else if (pending.kind === "repaint-day") {
       const source =
-        target.weekStart === weekStart
-          ? report
-          : handoverReport?.weekStart === target.weekStart
-            ? handoverReport
+        pending.weekStart === weekStart
+          ? reportRef.current
+          : handoverRef.current?.weekStart === pending.weekStart
+            ? handoverRef.current
             : null;
       if (
         !source ||
-        !repaintDayCanSubmit(source.shifts[target.shift].repaint[target.day])
+        !repaintDayCanSubmit(source.shifts[pending.shift].repaint[pending.day])
       ) {
         setPendingSubmit(null);
         return;
       }
-      if (target.weekStart === weekStart) {
-        setReport((prev) =>
-          withRepaintDaySubmitted(prev, target.shift, target.day, submittedAt),
-        );
-      } else if (handoverReport?.weekStart === target.weekStart) {
-        setHandoverReport(
-          withRepaintDaySubmitted(
-            handoverReport,
-            target.shift,
-            target.day,
-            submittedAt,
-          ),
-        );
-      }
+      const next = withRepaintDaySubmitted(
+        source,
+        pending.shift,
+        pending.day,
+        submittedAt,
+      );
+      if (pending.weekStart === weekStart) commitReport(next);
+      else commitHandover(next);
     }
     setPendingSubmit(null);
   }
@@ -441,7 +525,15 @@ export default function App() {
       };
     };
     if (dueMeeting.weekStart === weekStart) setReport(apply);
-    else setHandoverReport((prev) => (prev ? apply(prev) : prev));
+    else {
+      appliedLoadToken.current = -1;
+      setHandoverReport((prev) => {
+        if (!prev) return prev;
+        const next = apply(prev);
+        handoverRef.current = next;
+        return next;
+      });
+    }
   }
 
   function patchDueRepaint(next: RepaintDay) {
@@ -464,7 +556,15 @@ export default function App() {
       };
     };
     if (dueRepaint.weekStart === weekStart) setReport(apply);
-    else setHandoverReport((prev) => (prev ? apply(prev) : prev));
+    else {
+      appliedLoadToken.current = -1;
+      setHandoverReport((prev) => {
+        if (!prev) return prev;
+        const next = apply(prev);
+        handoverRef.current = next;
+        return next;
+      });
+    }
   }
 
   const currentShift = report.shifts[shift];
@@ -507,6 +607,12 @@ export default function App() {
               <em className="week-hold week-hold-ready">
                 Semaine complète — passez à la suivante. / Week complete —
                 Go to Next Week.
+              </em>
+            ) : null}
+            {loadFailed ? (
+              <em className="week-hold">
+                Chargement interrompu — les formulaires déjà envoyés restent
+                fermés. / Loading stopped — forms already sent stay closed.
               </em>
             ) : null}
           </div>
@@ -641,50 +747,55 @@ export default function App() {
         onConfirm={confirmSubmit}
       />
 
-      {blockingKind === "repaint" && dueRepaint && saveState !== "loading" ? (
+      {blockingKind === "repaint" &&
+      dueRepaintOpen &&
+      saveState !== "loading" &&
+      !loadFailed ? (
         <RepaintHandover
-          key={`${dueRepaint.weekStart}-${dueRepaint.shift}-${dueRepaint.day}`}
-          due={dueRepaint}
-          loading={dueRepaint.weekStart !== weekStart && handoverReport === null}
+          key={`${dueRepaintOpen.weekStart}-${dueRepaintOpen.shift}-${dueRepaintOpen.day}`}
+          due={dueRepaintOpen}
+          loading={false}
           value={
-            dueRepaint.weekStart === weekStart
-              ? report.shifts[dueRepaint.shift].repaint[dueRepaint.day]
-              : (handoverReport?.shifts[dueRepaint.shift].repaint[dueRepaint.day] ??
-                null)
+            dueRepaintOpen.weekStart === weekStart
+              ? report.shifts[dueRepaintOpen.shift].repaint[dueRepaintOpen.day]
+              : (handoverReport?.shifts[dueRepaintOpen.shift].repaint[
+                  dueRepaintOpen.day
+                ] ?? null)
           }
           onChange={patchDueRepaint}
           onSubmit={() =>
             setPendingSubmit({
               kind: "repaint-day",
-              shift: dueRepaint.shift,
-              day: dueRepaint.day,
-              weekStart: dueRepaint.weekStart,
+              shift: dueRepaintOpen.shift,
+              day: dueRepaintOpen.day,
+              weekStart: dueRepaintOpen.weekStart,
             })
           }
         />
       ) : null}
 
-      {blockingKind === "meeting" && dueMeeting && saveState !== "loading" ? (
+      {blockingKind === "meeting" &&
+      dueMeetingOpen &&
+      saveState !== "loading" &&
+      !loadFailed ? (
         <MeetingHandover
-          key={`${dueMeeting.weekStart}-${dueMeeting.shift}-${dueMeeting.day}`}
-          due={dueMeeting}
-          loading={
-            dueMeeting.weekStart !== weekStart && handoverReport === null
-          }
+          key={`${dueMeetingOpen.weekStart}-${dueMeetingOpen.shift}-${dueMeetingOpen.day}`}
+          due={dueMeetingOpen}
+          loading={false}
           value={
-            dueMeeting.weekStart === weekStart
-              ? report.shifts[dueMeeting.shift].meeting[dueMeeting.day]
-              : (handoverReport?.shifts[dueMeeting.shift].meeting[
-                  dueMeeting.day
+            dueMeetingOpen.weekStart === weekStart
+              ? report.shifts[dueMeetingOpen.shift].meeting[dueMeetingOpen.day]
+              : (handoverReport?.shifts[dueMeetingOpen.shift].meeting[
+                  dueMeetingOpen.day
                 ] ?? null)
           }
           onChange={patchDueMeeting}
           onSubmit={() =>
             setPendingSubmit({
               kind: "meeting-day",
-              shift: dueMeeting.shift,
-              day: dueMeeting.day,
-              weekStart: dueMeeting.weekStart,
+              shift: dueMeetingOpen.shift,
+              day: dueMeetingOpen.day,
+              weekStart: dueMeetingOpen.weekStart,
             })
           }
         />

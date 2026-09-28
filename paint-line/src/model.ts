@@ -674,6 +674,41 @@ export function withRepaintDaySubmitted(
   };
 }
 
+/**
+ * Keep a day that was already sent. A newer edit wins for open days, but a
+ * stale copy must not clear `submitted` and bring the popup back.
+ */
+export function mergeKeepSubmitted(
+  primary: WeeklyReport | null | undefined,
+  secondary: WeeklyReport | null | undefined,
+  weekStart?: string,
+): WeeklyReport {
+  const week = weekStart || primary?.weekStart || secondary?.weekStart || "";
+  const base = normalizeReport(primary, week);
+  if (!secondary) return base;
+  const extra = normalizeReport(secondary, week);
+  for (const shift of SHIFTS) {
+    for (const day of DAYS) {
+      const orders = base.shifts[shift].orders;
+      const extraOrders = extra.shifts[shift].orders;
+      if (extraOrders[day].submitted && !orders[day].submitted) {
+        orders[day] = extraOrders[day];
+      }
+      const meeting = base.shifts[shift].meeting;
+      const extraMeeting = extra.shifts[shift].meeting;
+      if (extraMeeting[day].submitted && !meeting[day].submitted) {
+        meeting[day] = extraMeeting[day];
+      }
+      const repaint = base.shifts[shift].repaint;
+      const extraRepaint = extra.shifts[shift].repaint;
+      if (extraRepaint[day].submitted && !repaint[day].submitted) {
+        repaint[day] = extraRepaint[day];
+      }
+    }
+  }
+  return normalizeReport(base, week);
+}
+
 export function shiftFillCount(shift: ShiftReport): { done: number; total: number } {
   const orderDone = DAYS.filter((d) => orderHasContent(shift.orders[d])).length;
   const meeting = meetingPageHasContent(shift.meeting) ? 1 : 0;

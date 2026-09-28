@@ -1,4 +1,4 @@
-const CACHE = "paintline-v2";
+const CACHE = "paintline-v3";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -16,35 +16,30 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response && response.status === 200) {
+      const copy = response.clone();
+      const cache = await caches.open(CACHE);
+      await cache.put(request, copy);
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    if (request.mode === "navigate") {
+      const index = await caches.match("./index.html");
+      if (index) return index;
+    }
+    return new Response("Offline", { status: 503, statusText: "Offline" });
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) {
     return;
   }
-
-  const navigate =
-    request.mode === "navigate" ||
-    request.destination === "document" ||
-    request.url.endsWith("/paintline/") ||
-    request.url.endsWith("/paintline/index.html");
-
-  if (navigate) {
-    event.respondWith(
-      fetch(request).catch(() => caches.match("./index.html")),
-    );
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request).then((response) => {
-        if (response && response.status === 200) {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      });
-      return cached || network;
-    }),
-  );
+  event.respondWith(networkFirst(request));
 });

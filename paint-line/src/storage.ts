@@ -1,5 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
-import { emptyReport, normalizeReport, type WeeklyReport } from "./model";
+import {
+  emptyReport,
+  mergeKeepSubmitted,
+  normalizeReport,
+  type WeeklyReport,
+} from "./model";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -21,14 +26,18 @@ const STORE = "reports";
 const LAST_WEEK_KEY = "paintline-last-week";
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore(STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    }),
+    2_000,
+    "IndexedDB",
+  );
 }
 
 type LocalCopy = { report: WeeklyReport; savedAt: string };
@@ -103,7 +112,12 @@ async function readRemote(
     .select("report, updated_at")
     .eq("week_start", weekStart)
     .maybeSingle();
-  if (error) throw new RemoteSaveError(error.message);
+  if (error) {
+    // No row yet for this week. That is an empty week, not a failed load.
+    const code = "code" in error ? String(error.code) : "";
+    if (code === "PGRST116") return null;
+    throw new RemoteSaveError(error.message);
+  }
   if (!data?.report) return null;
   return {
     report: normalizeReport(data.report as WeeklyReport, weekStart),
@@ -111,7 +125,7 @@ async function readRemote(
   };
 }
 
-export async function loadReport(weekStart: string): Promise<WeeklyReport> {
+async function loadReportInner(weekStart: string): Promise<WeeklyReport> {
   const local = await readLocal(weekStart);
   try {
     // Without a timeout, a hung Supabase/fetch leaves App saveState at
@@ -121,26 +135,86 @@ export async function loadReport(weekStart: string): Promise<WeeklyReport> {
       REMOTE_LOAD_TIMEOUT_MS,
       "Supabase loadReport",
     );
-    if (!remote) return local?.report ?? emptyReport(weekStart);
-    if (local && local.savedAt > remote.updatedAt) return local.report;
-    await writeLocal(remote.report, remote.updatedAt);
-    return remote.report;
-  } catch {
-    return local?.report ?? emptyReport(weekStart);
+    // Re-read after the network call. A submit may have landed while we waited,
+    // and writing the older remote row back would reopen that form.
+    const freshLocal = (await readLocal(weekStart)) ?? local;
+    if (!remote) return freshLocal?.report ?? emptyReport(weekStart);
+    const newer =
+      freshLocal && freshLocal.savedAt > remote.updatedAt
+        ? freshLocal.report
+        : remote.report;
+    const older =
+      freshLocal && freshLocal.savedAt > remote.updatedAt
+        ? remote.report
+        : freshLocal?.report;
+    const merged = mergeKeepSubmitted(newer, older, weekStart);
+    const savedAt =
+      freshLocal && freshLocal.savedAt > remote.updatedAt
+        ? freshLocal.savedAt
+        : remote.updatedAt;
+    await writeLocal(merged, savedAt || new Date().toISOString());
+    return merged;
+  } catch (err) {
+    const fallback = (await readLocal(weekStart)) ?? local;
+    if (fallback) return fallback.report;
+    // No copy on the tablet and the server did not answer. Refuse to invent
+    // an empty week — saving that would erase forms that were already sent.
+    throw err instanceof Error ? err : new Error("loadReport failed");
   }
 }
 
-export async function saveReport(report: WeeklyReport): Promise<void> {
+export async function loadReport(weekStart: string): Promise<WeeklyReport> {
+  return withTimeout(loadReportInner(weekStart), 15_000, "loadReport");
+}
+
+let saveQueue: Promise<void> = Promise.resolve();
+
+async function saveReportNow(report: WeeklyReport): Promise<void> {
   const savedAt = new Date().toISOString();
-  await writeLocal(report, savedAt);
+  const local = await readLocal(report.weekStart);
+  let merged = mergeKeepSubmitted(report, local?.report, report.weekStart);
+  if (supabase) {
+    try {
+      const remote = await withTimeout(
+        readRemote(report.weekStart),
+        3_000,
+        "Supabase save merge",
+      );
+      if (remote) {
+        merged = mergeKeepSubmitted(merged, remote.report, report.weekStart);
+      }
+    } catch {
+      // Keep the local merge. A hung read must not block the tablet.
+    }
+  }
+  await writeLocal(merged, savedAt);
   if (!supabase) {
     throw new RemoteSaveError("Supabase is not configured");
   }
-  const { error } = await supabase.from(TABLE).upsert(
-    { week_start: report.weekStart, report },
-    { onConflict: "week_start" },
+  await withTimeout(
+    Promise.resolve(
+      supabase
+        .from(TABLE)
+        .upsert(
+          { week_start: merged.weekStart, report: merged },
+          { onConflict: "week_start" },
+        ),
+    ).then((result) => {
+      if (result.error) throw new RemoteSaveError(result.error.message);
+    }),
+    REMOTE_LOAD_TIMEOUT_MS,
+    "Supabase saveReport",
   );
-  if (error) throw new RemoteSaveError(error.message);
+}
+
+export function saveReport(report: WeeklyReport): Promise<void> {
+  const snapshot = report;
+  const run = saveQueue.then(() => saveReportNow(snapshot));
+  saveQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export function getLastWeek(): string | null {
