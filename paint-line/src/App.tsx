@@ -45,7 +45,7 @@ import {
   type ShiftId,
   type WeeklyReport,
 } from "./model";
-import { getLastWeek, loadReport, saveReport } from "./storage";
+import { getLastWeek, getOpenWeek, loadReport, saveReport, setOpenWeek } from "./storage";
 
 type PendingSubmit =
   | { kind: "orders" }
@@ -83,6 +83,11 @@ function firstOpenSlot(
 function initialWeek(): string {
   const calendar = getMonday(clockNow());
   const previous = previousWeekStart(calendar);
+  const open = getOpenWeek();
+  // After "Go to Next Week", stay on that week. A later save of the finished
+  // week must not pull the tablet back.
+  if (open === calendar) return calendar;
+  if (open === previous) return previous;
   const last = getLastWeek();
   if (last === previous) return previous;
   return calendar;
@@ -240,10 +245,13 @@ export default function App() {
   useEffect(() => {
     if (saveState === "loading") return;
     if (weekStart !== calendarWeek) return;
+    // The user already left the finished week. Do not send them back.
+    if (getOpenWeek() === calendarWeek) return;
     let cancelled = false;
     const previous = previousWeekStart(calendarWeek);
     loadReport(previous).then((previousReport) => {
       if (cancelled) return;
+      if (getOpenWeek() === calendarWeek) return;
       if (weekHasPendingSubmissions(previousReport, clockNow())) {
         setWeekStart(previous);
         setScreen("overview");
@@ -253,6 +261,38 @@ export default function App() {
       cancelled = true;
     };
   }, [weekStart, saveState, calendarWeek]);
+
+  useEffect(() => {
+    const previous = previousWeekStart(calendarWeek);
+    if (saveState === "loading") return;
+    if (weekStart !== previous) return;
+    if (report.weekStart !== previous || pendingHold || !startedWeek) return;
+    if (getOpenWeek() === calendarWeek) {
+      setWeekStart(calendarWeek);
+      setScreen("overview");
+      return;
+    }
+    // The finished week is on screen only until the next week has been opened.
+    // Work already saved on the next week means that open already happened.
+    let cancelled = false;
+    loadReport(calendarWeek).then((nextReport) => {
+      if (cancelled) return;
+      if (!weekWasStarted(nextReport)) return;
+      setOpenWeek(calendarWeek);
+      setWeekStart(calendarWeek);
+      setScreen("overview");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    weekStart,
+    saveState,
+    calendarWeek,
+    report.weekStart,
+    pendingHold,
+    startedWeek,
+  ]);
 
   const dueRepaint = useMemo(() => {
     void nowTick;
@@ -406,6 +446,9 @@ export default function App() {
 
   async function goToNextWeek() {
     if (!canGoToNextWeek) return;
+    // Remember the choice before the save, so a refresh stays on the new week
+    // even if that save records the finished week as the latest write.
+    setOpenWeek(calendarWeek);
     // Flush the held week's last submission before swapping weekStart so the
     // load effect cannot cancel the debounced save and reload stale data.
     setSaveState("saving");

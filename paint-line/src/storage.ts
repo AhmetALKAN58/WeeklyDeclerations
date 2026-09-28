@@ -24,6 +24,7 @@ export class RemoteSaveError extends Error {
 const DB_NAME = "paintline-weekly";
 const STORE = "reports";
 const LAST_WEEK_KEY = "paintline-last-week";
+const OPEN_WEEK_KEY = "paintline-open-week";
 
 function openDb(): Promise<IDBDatabase> {
   return withTimeout(
@@ -219,6 +220,15 @@ export function saveReport(report: WeeklyReport): Promise<void> {
 
 export function getLastWeek(): string | null {
   return localStorage.getItem(LAST_WEEK_KEY);
+}
+
+/** Week the user chose to work on. Saving another week must not change this. */
+export function getOpenWeek(): string | null {
+  return localStorage.getItem(OPEN_WEEK_KEY);
+}
+
+export function setOpenWeek(weekStart: string): void {
+  localStorage.setItem(OPEN_WEEK_KEY, weekStart);
 }
 
 export async function listWeeks(): Promise<string[]> {
