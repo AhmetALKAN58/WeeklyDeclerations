@@ -104,12 +104,20 @@ export default function App() {
     let cancelled = false;
     skipSave.current = true;
     setSaveState("loading");
-    loadReport(weekStart).then((loaded) => {
-      if (cancelled) return;
-      setReport(loaded);
-      setSaveState("saved");
-      skipSave.current = false;
-    });
+    loadReport(weekStart)
+      .then((loaded) => {
+        if (cancelled) return;
+        setReport(loaded);
+        setSaveState("saved");
+        skipSave.current = false;
+      })
+      .catch(() => {
+        // loadReport normally swallows errors; keep the UI usable if it ever rejects.
+        if (cancelled) return;
+        setReport(emptyReport(weekStart));
+        setSaveState("local");
+        skipSave.current = false;
+      });
     return () => {
       cancelled = true;
     };
