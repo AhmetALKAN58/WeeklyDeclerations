@@ -244,12 +244,15 @@ export default function App() {
   const popupOpen = Boolean(blockingSlot) && saveState !== "loading";
 
   useEffect(() => {
-    // Absence of a popup is not a reason to drop the handover week. Doing so
-    // cancelled the debounced save and made the last form — Sunday night,
-    // whose trigger falls on Monday — load again as if it was never sent.
+    // The week on screen is saved as `report`. Drop a handover only when it is
+    // that same week, so a stale copy cannot be written back over a submit.
+    // Keep a handover of a different week: clearing it made finished
+    // September 27 forms look unsent and opened the night meeting again.
     if (!blockingSlot) return;
     if (blockingSlot.weekStart === weekStart) {
-      setHandoverReport((prev) => (prev ? null : prev));
+      setHandoverReport((prev) =>
+        prev && prev.weekStart === weekStart ? null : prev,
+      );
       return;
     }
     const targetWeek = blockingSlot.weekStart;
@@ -503,7 +506,7 @@ export default function App() {
             {canGoToNextWeek ? (
               <em className="week-hold week-hold-ready">
                 Semaine complète — passez à la suivante. / Week complete —
-                go to the next week.
+                Go to Next Week.
               </em>
             ) : null}
           </div>
@@ -527,7 +530,7 @@ export default function App() {
                 void goToNextWeek();
               }}
             >
-              Aller à la semaine suivante / Go to next week
+              Aller à la semaine suivante / Go to Next Week
             </button>
           ) : null}
         </div>
@@ -722,7 +725,7 @@ function Overview({
             className="primary-btn next-week-btn"
             onClick={onGoToNextWeek}
           >
-            Aller à la semaine suivante / Go to next week
+            Aller à la semaine suivante / Go to Next Week
           </button>
         </div>
       ) : null}

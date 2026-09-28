@@ -138,8 +138,8 @@ function allTriggeredForWeek(
  * Forms that should block the tablet now (oldest trigger first):
  * - every shift in the active week whose trigger has passed (day 14:30/15:00,
  *   evening 22:30/23:00, night 06:30/07:00 next calendar morning)
- * - when holding an ended week, also queue the new calendar week's due forms
- *   so today's triggers still fire and sit behind leftover handovers
+ * - a held previous week does not queue the new week; that week opens
+ *   from the Go to Next Week button
  * - on Monday, Sunday evening/night from the previous week (week rollover)
  *
  * Overdue slots stay until submitted — we never drop forms older than
@@ -155,9 +155,9 @@ function dueCandidates(
   const out: DueSlot[] = [];
 
   if (week < calendarWeek) {
+    // Stay on the week being finished. The next week opens only from
+    // "Go to Next Week", not from the last form's submit.
     out.push(...allTriggeredForWeek(week, now, at));
-    // Do not starve the new week while operators clear last week's queue.
-    out.push(...allTriggeredForWeek(calendarWeek, now, at));
     return uniqueDueSlots(out);
   }
 
