@@ -1,0 +1,18 @@
+{
+  "name": "STD Weekly Report",
+  "short_name": "STD",
+  "description": "STD weekly SST, 5S, signatures, and saw reports",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3efe4",
+  "theme_color": "#1b2a4a",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

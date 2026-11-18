@@ -38,8 +38,20 @@ const ALLOW_NETS = parseAllowNets(
 
 const PORT = Number(process.env.FORMS_PORT || 8512);
 const HOST = process.env.FORMS_HOST || "0.0.0.0";
-const PREFIX = "/paintline";
-const ROOT = path.join(__dirname, "dist");
+const APPS = [
+  {
+    id: "paintline",
+    prefix: "/paintline",
+    root: path.join(__dirname, "dist"),
+    label: "Paint line weekly report",
+  },
+  {
+    id: "std",
+    prefix: "/std",
+    root: path.join(__dirname, "..", "std", "dist"),
+    label: "STD weekly report",
+  },
+];
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -57,7 +69,7 @@ const HOME = `<!doctype html>
 <meta charset="utf-8">
 <title>Forms</title>
 <h1>Forms</h1>
-<p><a href="${PREFIX}/">Paint line weekly report</a></p>
+${APPS.map((app) => `<p><a href="${app.prefix}/">${app.label}</a></p>`).join("\n")}
 `;
 
 function send(res, status, body, type, cache) {
@@ -68,11 +80,11 @@ function send(res, status, body, type, cache) {
   res.end(body);
 }
 
-function fileFor(urlPath) {
-  const rel = decodeURIComponent(urlPath.slice(PREFIX.length + 1));
+function fileFor(app, urlPath) {
+  const rel = decodeURIComponent(urlPath.slice(app.prefix.length + 1));
   const target = rel === "" ? "index.html" : rel;
-  const file = path.normalize(path.join(ROOT, target));
-  if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return null;
+  const file = path.normalize(path.join(app.root, target));
+  if (file !== app.root && !file.startsWith(app.root + path.sep)) return null;
   return file;
 }
 
@@ -94,6 +106,7 @@ const server = http.createServer((req, res) => {
       JSON.stringify({
         ok: true,
         app: "paintline",
+        apps: APPS.map((app) => app.id),
         ip_locked: ALLOW_NETS.length > 0,
       }),
       "application/json",
@@ -110,19 +123,27 @@ const server = http.createServer((req, res) => {
     send(res, 200, HOME, "text/html; charset=utf-8", "no-cache");
     return;
   }
-  if (url.pathname === PREFIX) {
-    res.writeHead(302, { Location: `${PREFIX}/` });
+  const app = APPS.find(
+    (item) =>
+      url.pathname === item.prefix || url.pathname.startsWith(`${item.prefix}/`),
+  );
+  if (!app) {
+    send(res, 404, "not found", "text/plain; charset=utf-8", "no-store");
+    return;
+  }
+  if (url.pathname === app.prefix) {
+    res.writeHead(302, { Location: `${app.prefix}/` });
     res.end();
     return;
   }
-  if (!url.pathname.startsWith(`${PREFIX}/`)) {
+  if (!fs.existsSync(app.root)) {
     send(res, 404, "not found", "text/plain; charset=utf-8", "no-store");
     return;
   }
 
-  let file = fileFor(url.pathname);
+  let file = fileFor(app, url.pathname);
   if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    file = path.join(ROOT, "index.html");
+    file = path.join(app.root, "index.html");
   }
   if (!fs.existsSync(file)) {
     send(res, 404, "not found", "text/plain; charset=utf-8", "no-store");
@@ -137,5 +158,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`forms listening on http://${HOST}:${PORT}${PREFIX}/`);
+  console.log(
+    `forms listening on http://${HOST}:${PORT} (${APPS.map((app) => app.prefix).join(", ")})`,
+  );
 });

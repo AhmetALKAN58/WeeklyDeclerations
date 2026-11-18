@@ -1,5 +1,7 @@
 # Weekly Declarations — command reference
-# Admin PowerShell. Service: AirvectorForms (:8512) → https://forms.airvector-os.com/paintline/
+# Admin PowerShell. Service: AirvectorForms (:8512)
+#   https://forms.airvector-os.com/paintline/
+#   https://forms.airvector-os.com/std/
 #
 # Shop-only access (same as station kiosks). logging_db\.env:
 #   STATION_ALLOW_IPS=216.113.104.26
