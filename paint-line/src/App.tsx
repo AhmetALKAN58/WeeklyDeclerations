@@ -3,6 +3,7 @@ import { ConfirmSubmit } from "./components/ConfirmSubmit";
 import { DailyMeetingForm } from "./components/DailyMeetingForm";
 import { DailyOrderForm } from "./components/DailyOrderForm";
 import { MeetingHandover } from "./components/MeetingHandover";
+import { ReorderBoard, ReorderReview } from "./components/ReorderBoard";
 import { RepaintForm } from "./components/RepaintForm";
 import { RepaintHandover } from "./components/RepaintHandover";
 import {
@@ -98,7 +99,20 @@ export default function App() {
   const [report, setReport] = useState<WeeklyReport>(() =>
     emptyReport(weekStart),
   );
-  const [screen, setScreen] = useState<Screen>("overview");
+  const [screen, setScreen] = useState<Screen>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("review") === "1") return "reorder-review";
+    if (params.get("reorder") === "1") return "reorder";
+    return "overview";
+  });
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+
+  function keepReorderScreen() {
+    const current = screenRef.current;
+    if (current === "reorder" || current === "reorder-review") return;
+    setScreen("overview");
+  }
   const [shift, setShift] = useState<ShiftId>("morning");
   const [day, setDay] = useState<DayId>("monday");
   const [saveState, setSaveState] = useState<
@@ -224,14 +238,14 @@ export default function App() {
       // last save is not cancelled by a weekStart reload race.
       if (report.weekStart === previous && !pendingHold && !startedWeek) {
         setWeekStart(calendarWeek);
-        setScreen("overview");
+        keepReorderScreen();
       }
       return;
     }
 
     if (weekStart < previous) {
       setWeekStart(previous);
-      setScreen("overview");
+      keepReorderScreen();
     }
   }, [
     weekStart,
@@ -254,7 +268,7 @@ export default function App() {
       if (getOpenWeek() === calendarWeek) return;
       if (weekHasPendingSubmissions(previousReport, clockNow())) {
         setWeekStart(previous);
-        setScreen("overview");
+        keepReorderScreen();
       }
     });
     return () => {
@@ -269,7 +283,7 @@ export default function App() {
     if (report.weekStart !== previous || pendingHold || !startedWeek) return;
     if (getOpenWeek() === calendarWeek) {
       setWeekStart(calendarWeek);
-      setScreen("overview");
+      keepReorderScreen();
       return;
     }
     // The finished week is on screen only until the next week has been opened.
@@ -280,7 +294,7 @@ export default function App() {
       if (!weekWasStarted(nextReport)) return;
       setOpenWeek(calendarWeek);
       setWeekStart(calendarWeek);
-      setScreen("overview");
+      keepReorderScreen();
     });
     return () => {
       cancelled = true;
@@ -332,7 +346,11 @@ export default function App() {
       ? "meeting"
       : null;
   const popupOpen =
-    Boolean(blockingKind) && saveState !== "loading" && !loadFailed;
+    screen !== "reorder" &&
+    screen !== "reorder-review" &&
+    Boolean(blockingKind) &&
+    saveState !== "loading" &&
+    !loadFailed;
 
   useEffect(() => {
     // The week on screen is saved as `report`. Drop a handover only when it is
@@ -695,7 +713,12 @@ export default function App() {
             void goToNextWeek();
           }}
           onOpen={openForm}
+          onReorder={() => setScreen("reorder")}
         />
+      ) : screen === "reorder" ? (
+        <ReorderBoard onOpenReview={() => setScreen("reorder-review")} />
+      ) : screen === "reorder-review" ? (
+        <ReorderReview />
       ) : (
         <>
           <main className={`form-stage shift-${shift}`}>
@@ -790,7 +813,9 @@ export default function App() {
         onConfirm={confirmSubmit}
       />
 
-      {blockingKind === "repaint" &&
+      {screen !== "reorder" &&
+      screen !== "reorder-review" &&
+      blockingKind === "repaint" &&
       dueRepaintOpen &&
       saveState !== "loading" &&
       !loadFailed ? (
@@ -817,7 +842,9 @@ export default function App() {
         />
       ) : null}
 
-      {blockingKind === "meeting" &&
+      {screen !== "reorder" &&
+      screen !== "reorder-review" &&
+      blockingKind === "meeting" &&
       dueMeetingOpen &&
       saveState !== "loading" &&
       !loadFailed ? (
@@ -853,11 +880,13 @@ function Overview({
   canGoToNextWeek,
   onGoToNextWeek,
   onOpen,
+  onReorder,
 }: {
   report: WeeklyReport;
   canGoToNextWeek: boolean;
   onGoToNextWeek: () => void;
   onOpen: (shift: ShiftId, screen: Screen, day?: DayId) => void;
+  onReorder: () => void;
 }) {
   return (
     <main className="overview">
@@ -883,6 +912,13 @@ function Overview({
           </button>
         </div>
       ) : null}
+      <button type="button" className="reorder-entry" onClick={onReorder}>
+        <span>
+          Réapprovisionnement / Reorder
+          <small>Commun à tous les quarts / Shared by all shifts</small>
+        </span>
+        <em>Liste / List</em>
+      </button>
       <div className="shift-columns">
         {SHIFTS.map((id) => {
           const data = report.shifts[id];

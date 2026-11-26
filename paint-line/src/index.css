@@ -299,6 +299,157 @@ textarea {
   line-height: 1.45;
 }
 
+.reorder-entry {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  margin: 0 0 14px;
+  padding: 14px;
+  min-height: 64px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: #f7b6d2;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.reorder-entry small,
+.reorder-entry em {
+  display: block;
+  font-style: normal;
+  font-weight: 650;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reorder-page { max-width: 860px; }
+
+.reorder-toolbar { margin-bottom: 12px; }
+
+.reorder-mail {
+  background: #fff;
+  color: var(--navy);
+  border: 1px solid #cfc6b4;
+}
+
+.reorder-list { display: flex; flex-direction: column; gap: 12px; }
+
+.reorder-card {
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #e6e6e6;
+}
+
+.reorder-card.tone-requested { background: #ffe56a; }
+.reorder-card.tone-rejected { background: #f6c1bc; }
+.reorder-card.tone-confirmed { background: #b7e4c7; }
+
+.reorder-flag small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.reorder-lock {
+  max-width: 420px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+}
+
+.reorder-lock h2 { margin: 0; }
+.reorder-lock label { display: flex; flex-direction: column; gap: 4px; font-weight: 800; }
+.reorder-lock input {
+  min-height: 44px;
+  border: 1.5px solid #333;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.reorder-lock p { margin: 0; color: var(--red); font-weight: 700; }
+
+.reorder-card-main {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 14px;
+  cursor: pointer;
+}
+
+.reorder-card-main header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.reorder-card-main h2 { margin: 0; font-size: 20px; }
+.reorder-card-main header span { font-weight: 800; }
+
+.reorder-card dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.reorder-card dt { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--muted); }
+.reorder-card dd { margin: 2px 0 0; font-weight: 700; }
+
+.reorder-flag {
+  margin: 12px 0 0;
+  font-weight: 800;
+  text-align: center;
+}
+
+.reorder-form {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.reorder-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 800; }
+
+.reorder-form input,
+.reorder-form select,
+.reorder-form textarea {
+  min-height: 44px;
+  border: 1.5px solid #333;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.reorder-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+.reorder-reject {
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #9b2c22;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.reorder-sign {
+  display: block;
+  width: 180px;
+  height: 64px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
 .shift-columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

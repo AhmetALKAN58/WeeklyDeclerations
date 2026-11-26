@@ -12,7 +12,7 @@ export const DAYS = [
 ] as const;
 export type DayId = (typeof DAYS)[number];
 
-export type Screen = "overview" | "orders" | "meeting" | "repaint";
+export type Screen = "overview" | "orders" | "meeting" | "repaint" | "reorder" | "reorder-review";
 
 export interface LadderSection {
   qty: string;
